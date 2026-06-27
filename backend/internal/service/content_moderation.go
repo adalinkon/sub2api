@@ -911,6 +911,10 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 		}
 		if cfg.KeywordBlockingMode == ContentModerationKeywordModeKeywordOnly {
 			s.recordPreBlockSyncMetric(0, ContentModerationActionAllow)
+			if cfg.RecordNonHits && cfg.shouldSample(hashText) {
+				log := s.buildLog(input, cfg, ContentModerationActionAllow, false, "", 0, map[string]float64{}, content.ExcerptText(), nil, nil, "")
+				s.enqueueRecord(input, cfg, log, hashText, false, false)
+			}
 			slog.Info("content_moderation.skip_api_keyword_only",
 				"user_id", input.UserID,
 				"api_key_id", input.APIKeyID,

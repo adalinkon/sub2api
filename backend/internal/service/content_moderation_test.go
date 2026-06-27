@@ -546,6 +546,7 @@ func TestContentModerationCheck_KeywordOnlyStrategySkipsAPIOnMiss(t *testing.T) 
 	cfg.APIKeys = []string{"sk-test"}
 	cfg.BlockedKeywords = []string{"never-matches"}
 	cfg.KeywordBlockingMode = ContentModerationKeywordModeKeywordOnly
+	cfg.RecordNonHits = true
 	rawCfg, err := json.Marshal(cfg)
 	require.NoError(t, err)
 
@@ -574,7 +575,14 @@ func TestContentModerationCheck_KeywordOnlyStrategySkipsAPIOnMiss(t *testing.T) 
 	require.NoError(t, err)
 	require.True(t, decision.Allowed, "keyword-only must allow misses without calling the API")
 	require.False(t, upstreamCalled, "keyword-only must not call the upstream moderation API")
-	require.Len(t, repo.snapshotLogs(), 0)
+	logs := requireContentModerationLogCount(t, repo, 1)
+	require.False(t, logs[0].Flagged)
+	require.Equal(t, ContentModerationActionAllow, logs[0].Action)
+	require.Empty(t, logs[0].HighestCategory)
+	require.Zero(t, logs[0].HighestScore)
+	require.Empty(t, logs[0].CategoryScores)
+	require.Nil(t, logs[0].UpstreamLatencyMS)
+	require.Equal(t, "absolutely clean prompt", logs[0].InputExcerpt)
 }
 
 func TestContentModerationCheck_APIOnlyStrategyIgnoresKeywordList(t *testing.T) {

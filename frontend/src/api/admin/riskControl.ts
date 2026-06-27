@@ -21,6 +21,7 @@ export interface ContentModerationConfig {
   api_key_statuses: ContentModerationAPIKeyStatus[]
   timeout_ms: number
   sample_rate: number
+  input_excerpt_runes: number
   all_groups: boolean
   group_ids: number[]
   record_non_hits: boolean
@@ -97,6 +98,7 @@ export interface UpdateContentModerationConfig {
   clear_api_key?: boolean
   timeout_ms?: number
   sample_rate?: number
+  input_excerpt_runes?: number
   all_groups?: boolean
   group_ids?: number[]
   record_non_hits?: boolean

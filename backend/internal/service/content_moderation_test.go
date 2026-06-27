@@ -400,6 +400,16 @@ func TestBuildContentModerationLog_RedactsInputExcerpt(t *testing.T) {
 	require.Contains(t, log.InputExcerpt, "[已脱敏]")
 }
 
+func TestBuildContentModerationLog_UsesConfiguredInputExcerptRunes(t *testing.T) {
+	svc := &ContentModerationService{}
+	cfg := defaultContentModerationConfig()
+	cfg.InputExcerptRunes = 5
+
+	log := svc.buildLog(ContentModerationCheckInput{}, cfg, ContentModerationActionAllow, false, "", 0, nil, "1234567890", nil, nil, "")
+
+	require.Equal(t, "12345", log.InputExcerpt)
+}
+
 func TestRedactContentModerationSecrets_LongHexAndTokens(t *testing.T) {
 	input := "你哈市多大事cf5bbdc4cd508f3aaf0d2070d529d4a4ac29099f8ecc357f696df28e1df91554 token=abc123456789xyz Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signaturepart https://example.com/private/path?token=abc123"
 
@@ -412,13 +422,13 @@ func TestRedactContentModerationSecrets_LongHexAndTokens(t *testing.T) {
 	require.Contains(t, out, "[已脱敏]")
 }
 
-func TestContentModerationConfigNormalize_NonHitRetentionMaxThreeDays(t *testing.T) {
+func TestContentModerationConfigNormalize_NonHitRetentionMaxDays(t *testing.T) {
 	cfg := defaultContentModerationConfig()
-	cfg.NonHitRetentionDays = 30
+	cfg.NonHitRetentionDays = 4000
 
 	cfg.normalize()
 
-	require.Equal(t, 3, cfg.NonHitRetentionDays)
+	require.Equal(t, maxContentModerationRetentionDays, cfg.NonHitRetentionDays)
 }
 
 func TestNormalizeBlockedKeywords_TrimsDedupesAndCaps(t *testing.T) {
@@ -863,6 +873,29 @@ func TestContentModerationUpdateConfig_SavesCustomThresholds(t *testing.T) {
 	require.Equal(t, 0.72, saved.Thresholds["sexual"])
 	require.Equal(t, 1.0, saved.Thresholds["harassment"])
 	require.NotContains(t, saved.Thresholds, "unknown")
+}
+
+func TestContentModerationUpdateConfig_SavesInputExcerptRunes(t *testing.T) {
+	cfg := defaultContentModerationConfig()
+	rawCfg, err := json.Marshal(cfg)
+	require.NoError(t, err)
+
+	repo := &contentModerationTestSettingRepo{values: map[string]string{
+		SettingKeyContentModerationConfig: string(rawCfg),
+	}}
+	svc := NewContentModerationService(repo, nil, nil, nil, nil, nil, nil)
+	excerptRunes := 12000
+
+	view, err := svc.UpdateConfig(context.Background(), UpdateContentModerationConfigInput{
+		InputExcerptRunes: &excerptRunes,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, excerptRunes, view.InputExcerptRunes)
+
+	var saved ContentModerationConfig
+	require.NoError(t, json.Unmarshal([]byte(repo.values[SettingKeyContentModerationConfig]), &saved))
+	require.Equal(t, excerptRunes, saved.InputExcerptRunes)
 }
 
 func TestExtractContentModerationInput_AnthropicImageSourceOnlyParticipatesInMemory(t *testing.T) {

@@ -80,6 +80,7 @@ const baseConfig = (): ContentModerationConfig => ({
   api_key_statuses: [],
   timeout_ms: 3000,
   sample_rate: 100,
+  input_excerpt_runes: 240,
   all_groups: true,
   group_ids: [],
   record_non_hits: false,

@@ -55,12 +55,13 @@ const (
 	ContentModerationProtocolGemini            = "gemini"
 	ContentModerationProtocolOpenAIImages      = "openai_images"
 
-	defaultContentModerationBaseURL   = "https://api.openai.com"
-	defaultContentModerationModel     = "omni-moderation-latest"
-	defaultContentModerationTimeoutMS = 3000
-	maxContentModerationTimeoutMS     = 30000
-	maxModerationInputRunes           = 12000
-	maxModerationExcerptRunes         = 240
+	defaultContentModerationBaseURL           = "https://api.openai.com"
+	defaultContentModerationModel             = "omni-moderation-latest"
+	defaultContentModerationTimeoutMS         = 3000
+	maxContentModerationTimeoutMS             = 30000
+	maxModerationInputRunes                   = 12000
+	maxModerationExcerptRunes                 = 240
+	defaultContentModerationInputExcerptRunes = maxModerationExcerptRunes
 
 	defaultContentModerationWorkerCount          = 4
 	maxContentModerationWorkerCount              = 32
@@ -75,7 +76,6 @@ const (
 	defaultContentModerationHitRetentionDays     = 180
 	defaultContentModerationNonHitRetentionDays  = 3
 	maxContentModerationRetentionDays            = 3650
-	maxContentModerationNonHitRetentionDays      = 3
 	contentModerationKeyRateLimitFreezeDuration  = time.Minute
 	contentModerationKeyAuthFreezeDuration       = 10 * time.Minute
 	contentModerationKeyHTTPErrorFreezeDuration  = 10 * time.Second
@@ -142,6 +142,7 @@ type ContentModerationConfig struct {
 	APIKeys              []string                     `json:"api_keys,omitempty"`
 	TimeoutMS            int                          `json:"timeout_ms"`
 	SampleRate           int                          `json:"sample_rate"`
+	InputExcerptRunes    int                          `json:"input_excerpt_runes"`
 	AllGroups            bool                         `json:"all_groups"`
 	GroupIDs             []int64                      `json:"group_ids"`
 	RecordNonHits        bool                         `json:"record_non_hits"`
@@ -179,6 +180,7 @@ type ContentModerationConfigView struct {
 	APIKeyStatuses                 []ContentModerationAPIKeyStatus `json:"api_key_statuses"`
 	TimeoutMS                      int                             `json:"timeout_ms"`
 	SampleRate                     int                             `json:"sample_rate"`
+	InputExcerptRunes              int                             `json:"input_excerpt_runes"`
 	AllGroups                      bool                            `json:"all_groups"`
 	GroupIDs                       []int64                         `json:"group_ids"`
 	RecordNonHits                  bool                            `json:"record_non_hits"`
@@ -267,6 +269,7 @@ type UpdateContentModerationConfigInput struct {
 	ClearAPIKey                    bool                          `json:"clear_api_key"`
 	TimeoutMS                      *int                          `json:"timeout_ms"`
 	SampleRate                     *int                          `json:"sample_rate"`
+	InputExcerptRunes              *int                          `json:"input_excerpt_runes"`
 	AllGroups                      *bool                         `json:"all_groups"`
 	GroupIDs                       *[]int64                      `json:"group_ids"`
 	RecordNonHits                  *bool                         `json:"record_non_hits"`
@@ -604,6 +607,9 @@ func (s *ContentModerationService) UpdateConfig(ctx context.Context, input Updat
 	}
 	if input.SampleRate != nil {
 		cfg.SampleRate = *input.SampleRate
+	}
+	if input.InputExcerptRunes != nil {
+		cfg.InputExcerptRunes = *input.InputExcerptRunes
 	}
 	if input.WorkerCount != nil {
 		cfg.WorkerCount = *input.WorkerCount
@@ -1608,6 +1614,10 @@ func (s *ContentModerationService) buildLog(input ContentModerationCheckInput, c
 	if input.APIKeyID > 0 {
 		apiKeyID = &input.APIKeyID
 	}
+	excerptRunes := defaultContentModerationInputExcerptRunes
+	if cfg != nil && cfg.InputExcerptRunes > 0 {
+		excerptRunes = cfg.InputExcerptRunes
+	}
 	return &ContentModerationLog{
 		RequestID:         input.RequestID,
 		UserID:            userID,
@@ -1626,7 +1636,7 @@ func (s *ContentModerationService) buildLog(input ContentModerationCheckInput, c
 		HighestScore:      highestScore,
 		CategoryScores:    cloneFloatMap(scores),
 		ThresholdSnapshot: cloneFloatMap(cfg.Thresholds),
-		InputExcerpt:      trimRunes(redactContentModerationSecrets(text), maxModerationExcerptRunes),
+		InputExcerpt:      trimRunes(redactContentModerationSecrets(text), excerptRunes),
 		UpstreamLatencyMS: latency,
 		QueueDelayMS:      queueDelay,
 		Error:             errText,
@@ -1831,6 +1841,7 @@ func defaultContentModerationConfig() *ContentModerationConfig {
 		Model:                defaultContentModerationModel,
 		TimeoutMS:            defaultContentModerationTimeoutMS,
 		SampleRate:           100,
+		InputExcerptRunes:    defaultContentModerationInputExcerptRunes,
 		AllGroups:            true,
 		GroupIDs:             []int64{},
 		RecordNonHits:        false,
@@ -1903,6 +1914,12 @@ func (cfg *ContentModerationConfig) normalize() {
 	if cfg.SampleRate > 100 {
 		cfg.SampleRate = 100
 	}
+	if cfg.InputExcerptRunes <= 0 {
+		cfg.InputExcerptRunes = defaultContentModerationInputExcerptRunes
+	}
+	if cfg.InputExcerptRunes > maxModerationInputRunes {
+		cfg.InputExcerptRunes = maxModerationInputRunes
+	}
 	if cfg.WorkerCount <= 0 {
 		cfg.WorkerCount = defaultContentModerationWorkerCount
 	}
@@ -1943,8 +1960,8 @@ func (cfg *ContentModerationConfig) normalize() {
 	if cfg.NonHitRetentionDays <= 0 {
 		cfg.NonHitRetentionDays = defaultContentModerationNonHitRetentionDays
 	}
-	if cfg.NonHitRetentionDays > maxContentModerationNonHitRetentionDays {
-		cfg.NonHitRetentionDays = maxContentModerationNonHitRetentionDays
+	if cfg.NonHitRetentionDays > maxContentModerationRetentionDays {
+		cfg.NonHitRetentionDays = maxContentModerationRetentionDays
 	}
 	cfg.GroupIDs = normalizeInt64IDs(cfg.GroupIDs)
 	cfg.Thresholds = mergeContentModerationThresholds(ContentModerationDefaultThresholds(), cfg.Thresholds)
@@ -2161,6 +2178,7 @@ func (s *ContentModerationService) configView(cfg *ContentModerationConfig) *Con
 		APIKeyStatuses:                 s.apiKeyStatuses(keys),
 		TimeoutMS:                      cfg.TimeoutMS,
 		SampleRate:                     cfg.SampleRate,
+		InputExcerptRunes:              cfg.InputExcerptRunes,
 		AllGroups:                      cfg.AllGroups,
 		GroupIDs:                       append([]int64(nil), cfg.GroupIDs...),
 		RecordNonHits:                  cfg.RecordNonHits,

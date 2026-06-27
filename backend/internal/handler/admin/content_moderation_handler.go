@@ -31,6 +31,7 @@ type contentModerationConfigRequest struct {
 	ClearAPIKey          bool                `json:"clear_api_key"`
 	TimeoutMS            *int                `json:"timeout_ms"`
 	SampleRate           *int                `json:"sample_rate"`
+	InputExcerptRunes    *int                `json:"input_excerpt_runes"`
 	AllGroups            *bool               `json:"all_groups"`
 	GroupIDs             *[]int64            `json:"group_ids"`
 	RecordNonHits        *bool               `json:"record_non_hits"`
@@ -95,6 +96,7 @@ func (h *ContentModerationHandler) UpdateConfig(c *gin.Context) {
 		ClearAPIKey:                    req.ClearAPIKey,
 		TimeoutMS:                      req.TimeoutMS,
 		SampleRate:                     req.SampleRate,
+		InputExcerptRunes:              req.InputExcerptRunes,
 		AllGroups:                      req.AllGroups,
 		GroupIDs:                       req.GroupIDs,
 		RecordNonHits:                  req.RecordNonHits,

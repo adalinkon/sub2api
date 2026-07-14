@@ -120,6 +120,13 @@ func TestWSResponseCreate_ForcePriorityRewritesKnownTier(t *testing.T) {
 		require.Equal(t, OpenAIFastTierPriority, gjson.GetBytes(updated, "service_tier").String(),
 			"tier %q should be forced to priority", tier)
 	}
+
+	frame := []byte(`{"type":"response.create","model":"gpt-5.5","input":[]}`)
+	updated, blocked, err := svc.applyOpenAIFastPolicyToWSResponseCreate(context.Background(), account, "gpt-5.5", frame)
+	require.NoError(t, err)
+	require.Nil(t, blocked)
+	require.Equal(t, OpenAIFastTierPriority, gjson.GetBytes(updated, "service_tier").String(),
+		"missing service_tier should be forced to priority")
 }
 
 func TestWSResponseCreate_FlexPassThrough(t *testing.T) {

@@ -243,6 +243,11 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		return nil, policyErr
 	}
 	responsesBody = updatedBody
+	if tier := extractOpenAIServiceTierFromBody(responsesBody); tier != nil {
+		responsesReq.ServiceTier = *tier
+	} else {
+		responsesReq.ServiceTier = ""
+	}
 
 	// 5. Get access token
 	token, _, err := s.GetAccessToken(ctx, account)

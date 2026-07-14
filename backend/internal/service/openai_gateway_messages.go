@@ -244,6 +244,11 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		return nil, policyErr
 	}
 	responsesBody = updatedBody
+	if tier := extractOpenAIServiceTierFromBody(responsesBody); tier != nil {
+		responsesReq.ServiceTier = *tier
+	} else {
+		responsesReq.ServiceTier = ""
+	}
 	grokCacheIdentity := ""
 	if account.Platform == PlatformGrok {
 		grokCacheIdentity = resolveGrokCacheIdentity(c, responsesBody, promptCacheKey, upstreamModel)

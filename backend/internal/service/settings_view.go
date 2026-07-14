@@ -567,7 +567,7 @@ func DefaultBetaPolicySettings() *BetaPolicySettings {
 // OpenAI 的 "fast 模式" 通过请求体中的 service_tier 字段识别：
 //   - "priority"（客户端可传 "fast"，归一化为 "priority"）：fast 模式
 //   - "flex"：低优先级模式
-//   - 省略：normal 默认
+//   - 省略：normal 默认；管理员可用 all + force_priority 强制补为 fast
 //
 // 本策略复用 BetaPolicyAction*/BetaPolicyScope* 常量语义，只是匹配键从
 // anthropic-beta header 换成 body 的 service_tier 字段。
@@ -577,7 +577,8 @@ const (
 	OpenAIFastTierFlex     = "flex"     // 仅匹配 flex
 
 	// OpenAIFastPolicyActionForcePriority 会保留 service_tier 字段并强制写成
-	// priority，用于把 flex/auto/default/scale 等已识别 tier 收敛为 fast。
+	// priority，用于把 flex/auto/default/scale 等已识别 tier 收敛为 fast；
+	// 配合 service_tier=all 时，也会把省略该字段的请求补为 fast。
 	OpenAIFastPolicyActionForcePriority = "force_priority"
 )
 

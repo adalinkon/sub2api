@@ -146,6 +146,59 @@ func TestOpenAIGatewayService_Forward_HTTPPatchPathKeepsLargeInputRaw(t *testing
 	require.Equal(t, "9007199254740993", gjson.GetBytes(upstream.lastBody, "input.0.content.0.nonce").Raw)
 }
 
+func TestOpenAIGatewayService_Forward_ForcePriorityPolicyInjectsMissingServiceTier(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for name, body := range map[string][]byte{
+		"missing":      []byte(`{"model":"gpt-5","stream":false,"input":[{"type":"message","content":"hi"}]}`),
+		"null":         []byte(`{"model":"gpt-5","stream":false,"service_tier":null,"input":[{"type":"message","content":"hi"}]}`),
+		"empty_string": []byte(`{"model":"gpt-5","stream":false,"service_tier":"","input":[{"type":"message","content":"hi"}]}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			upstream := &httpUpstreamRecorder{
+				resp: &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": []string{"application/json"}},
+					Body:       io.NopCloser(strings.NewReader(`{"usage":{"input_tokens":1,"output_tokens":2}}`)),
+				},
+			}
+			cfg := &config.Config{}
+			cfg.Security.URLAllowlist.Enabled = false
+			svc := newOpenAIGatewayServiceWithSettings(t, &OpenAIFastPolicySettings{
+				Rules: []OpenAIFastPolicyRule{{
+					ServiceTier: OpenAIFastTierAny,
+					Action:      OpenAIFastPolicyActionForcePriority,
+					Scope:       BetaPolicyScopeAll,
+				}},
+			})
+			svc.cfg = cfg
+			svc.httpUpstream = upstream
+			account := &Account{
+				ID:          11,
+				Name:        "openai-apikey",
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeAPIKey,
+				Concurrency: 1,
+				Credentials: map[string]any{
+					"api_key":  "sk-test",
+					"base_url": "https://example.com",
+				},
+				Extra: map[string]any{"use_responses_api": true},
+			}
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
+			SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
+
+			result, err := svc.Forward(context.Background(), c, account, body)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, OpenAIFastTierPriority, gjson.GetBytes(upstream.lastBody, "service_tier").String())
+			require.NotNil(t, result.ServiceTier)
+			require.Equal(t, OpenAIFastTierPriority, *result.ServiceTier)
+		})
+	}
+}
+
 func TestOpenAIGatewayService_Forward_DecodedMutationKeepsLaterFieldDeletes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstream := &httpUpstreamRecorder{

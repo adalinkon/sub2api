@@ -261,11 +261,22 @@ func TestApplyOpenAIFastPolicyToBody_ForcePriorityRewritesKnownTier(t *testing.T
 			"tier %q should be forced to priority", tier)
 	}
 
-	body := []byte(`{"model":"gpt-5.5","messages":[]}`)
-	updated, err := svc.applyOpenAIFastPolicyToBody(context.Background(), account, "gpt-5.5", body)
-	require.NoError(t, err)
-	require.Equal(t, OpenAIFastTierPriority, gjson.GetBytes(updated, "service_tier").String(),
-		"missing service_tier should be forced to priority")
+	for name, body := range map[string][]byte{
+		"missing":           []byte(`{"model":"gpt-5.5","messages":[]}`),
+		"null":              []byte(`{"model":"gpt-5.5","service_tier":null,"messages":[]}`),
+		"empty_string":      []byte(`{"model":"gpt-5.5","service_tier":"","messages":[]}`),
+		"whitespace_string": []byte(`{"model":"gpt-5.5","service_tier":"   ","messages":[]}`),
+		"unknown_string":    []byte(`{"model":"gpt-5.5","service_tier":"turbo","messages":[]}`),
+		"number":            []byte(`{"model":"gpt-5.5","service_tier":123,"messages":[]}`),
+		"bool":              []byte(`{"model":"gpt-5.5","service_tier":true,"messages":[]}`),
+		"object":            []byte(`{"model":"gpt-5.5","service_tier":{"tier":"flex"},"messages":[]}`),
+		"array":             []byte(`{"model":"gpt-5.5","service_tier":["flex"],"messages":[]}`),
+	} {
+		updated, err := svc.applyOpenAIFastPolicyToBody(context.Background(), account, "gpt-5.5", body)
+		require.NoError(t, err, name)
+		require.Equal(t, OpenAIFastTierPriority, gjson.GetBytes(updated, "service_tier").String(),
+			"%s service_tier should be forced to priority", name)
+	}
 }
 
 func TestApplyOpenAIFastPolicyToBody_ForcePriorityMissingTierHonorsModelWhitelist(t *testing.T) {
@@ -285,6 +296,21 @@ func TestApplyOpenAIFastPolicyToBody_ForcePriorityMissingTierHonorsModelWhitelis
 	updated, err := svc.applyOpenAIFastPolicyToBody(context.Background(), account, "gpt-4", body)
 	require.NoError(t, err)
 	require.False(t, gjson.GetBytes(updated, "service_tier").Exists())
+}
+
+func TestApplyOpenAIFastPolicyToBody_UnknownTierNoopWithoutForcePriority(t *testing.T) {
+	svc := newOpenAIGatewayServiceWithSettings(t, DefaultOpenAIFastPolicySettings())
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	for name, body := range map[string][]byte{
+		"unknown_string": []byte(`{"model":"gpt-5.5","service_tier":"turbo","messages":[]}`),
+		"number":         []byte(`{"model":"gpt-5.5","service_tier":123,"messages":[]}`),
+		"bool":           []byte(`{"model":"gpt-5.5","service_tier":true,"messages":[]}`),
+	} {
+		updated, err := svc.applyOpenAIFastPolicyToBody(context.Background(), account, "gpt-5.5", body)
+		require.NoError(t, err, name)
+		require.JSONEq(t, string(body), string(updated), name)
+	}
 }
 
 // TestApplyOpenAIFastPolicyToBody_OfficialTiersBypassDefaultRule 验证默认配置

@@ -761,6 +761,45 @@ func (s *OpenAIGatewayService) evaluateOpenAIFastPolicyForMissingTier(ctx contex
 	return evaluateOpenAIFastPolicyWithSettings(settings, openAIFastPolicyUserID(ctx), account, model, OpenAIFastTierAny)
 }
 
+func (s *OpenAIGatewayService) shouldForceMissingOpenAIServiceTier(ctx context.Context, account *Account, model string) bool {
+	action, _ := s.evaluateOpenAIFastPolicyForMissingTier(ctx, account, model)
+	return action == OpenAIFastPolicyActionForcePriority
+}
+
+func isMissingOpenAIServiceTierValue(value gjson.Result) bool {
+	if !value.Exists() || value.Type == gjson.Null {
+		return true
+	}
+	return value.Type == gjson.String && strings.TrimSpace(value.String()) == ""
+}
+
+func (s *OpenAIGatewayService) resolveOpenAIFastPolicyAction(
+	ctx context.Context,
+	account *Account,
+	model string,
+	tierValue gjson.Result,
+) (rawTier, normTier, action, errMsg string) {
+	if isMissingOpenAIServiceTierValue(tierValue) {
+		if s.shouldForceMissingOpenAIServiceTier(ctx, account, model) {
+			return "", OpenAIFastTierPriority, OpenAIFastPolicyActionForcePriority, ""
+		}
+		return "", "", BetaPolicyActionPass, ""
+	}
+	rawTier = tierValue.String()
+	normTier = normalizedOpenAIServiceTierValue(rawTier)
+	if normTier == "" {
+		if s.shouldForceMissingOpenAIServiceTier(ctx, account, model) {
+			return rawTier, OpenAIFastTierPriority, OpenAIFastPolicyActionForcePriority, ""
+		}
+		return "", "", BetaPolicyActionPass, ""
+	}
+	action, errMsg = s.evaluateOpenAIFastPolicy(ctx, account, model, normTier)
+	if action == "" {
+		action = BetaPolicyActionPass
+	}
+	return rawTier, normTier, action, errMsg
+}
+
 // evaluateOpenAIFastPolicyWithSettings is the pure-function core extracted so
 // long-lived sessions (e.g. WS) can prefetch settings once and avoid hitting
 // the settingService on every frame. See WSSession entry and
@@ -857,8 +896,8 @@ func openAIFastPolicySettingsFromContext(ctx context.Context) *OpenAIFastPolicyS
 // action=block it returns (body, *OpenAIFastBlockedError). On pass it
 // normalizes the service_tier value (e.g. client alias "fast" → "priority").
 // action=force_priority rewrites any matched known tier to "priority"; if the
-// client omitted service_tier entirely, an "all"+force_priority rule injects
-// service_tier="priority".
+// client omitted service_tier or sent null/empty/invalid, an
+// "all"+force_priority rule injects service_tier="priority".
 //
 // Rationale for normalize-on-pass: chat-completions / messages 入口在调用本
 // 函数之前已经通过 normalizeResponsesBodyServiceTier 把 service_tier 归一化
@@ -870,26 +909,7 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToBody(ctx context.Context, 
 		return body, nil
 	}
 	tierValue := gjson.GetBytes(body, "service_tier")
-	if !tierValue.Exists() {
-		action, _ := s.evaluateOpenAIFastPolicyForMissingTier(ctx, account, model)
-		if action != OpenAIFastPolicyActionForcePriority {
-			return body, nil
-		}
-		updated, err := sjson.SetBytes(body, "service_tier", OpenAIFastTierPriority)
-		if err != nil {
-			return body, fmt.Errorf("force default service_tier priority on body: %w", err)
-		}
-		return updated, nil
-	}
-	rawTier := tierValue.String()
-	if rawTier == "" {
-		return body, nil
-	}
-	normTier := normalizedOpenAIServiceTierValue(rawTier)
-	if normTier == "" {
-		return body, nil
-	}
-	action, errMsg := s.evaluateOpenAIFastPolicy(ctx, account, model, normTier)
+	rawTier, normTier, action, errMsg := s.resolveOpenAIFastPolicyAction(ctx, account, model, tierValue)
 	switch action {
 	case BetaPolicyActionBlock:
 		msg := errMsg
@@ -952,7 +972,7 @@ func writeOpenAIFastPolicyBlockedResponse(c *gin.Context, err *OpenAIFastBlocked
 //
 //   - pass: keeps service_tier, normalizing aliases such as "fast" to "priority"
 //   - filter: returns a copy with top-level service_tier removed
-//   - force_priority: keeps service_tier and rewrites it to "priority"; if omitted, injects "priority"
+//   - force_priority: keeps service_tier and rewrites it to "priority"; if omitted/null/empty/invalid, injects "priority"
 //   - block: returns (frame, *OpenAIFastBlockedError)
 //
 // Only frames whose "type" field strictly equals "response.create" are
@@ -993,26 +1013,7 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToWSResponseCreate(
 		return frame, nil, nil
 	}
 	tierValue := gjson.GetBytes(frame, "service_tier")
-	if !tierValue.Exists() {
-		action, _ := s.evaluateOpenAIFastPolicyForMissingTier(ctx, account, model)
-		if action != OpenAIFastPolicyActionForcePriority {
-			return frame, nil, nil
-		}
-		updated, err := sjson.SetBytes(frame, "service_tier", OpenAIFastTierPriority)
-		if err != nil {
-			return frame, nil, fmt.Errorf("force default service_tier priority in ws frame: %w", err)
-		}
-		return updated, nil, nil
-	}
-	rawTier := tierValue.String()
-	if rawTier == "" {
-		return frame, nil, nil
-	}
-	normTier := normalizedOpenAIServiceTierValue(rawTier)
-	if normTier == "" {
-		return frame, nil, nil
-	}
-	action, errMsg := s.evaluateOpenAIFastPolicy(ctx, account, model, normTier)
+	rawTier, normTier, action, errMsg := s.resolveOpenAIFastPolicyAction(ctx, account, model, tierValue)
 	switch action {
 	case BetaPolicyActionBlock:
 		msg := errMsg

@@ -121,12 +121,23 @@ func TestWSResponseCreate_ForcePriorityRewritesKnownTier(t *testing.T) {
 			"tier %q should be forced to priority", tier)
 	}
 
-	frame := []byte(`{"type":"response.create","model":"gpt-5.5","input":[]}`)
-	updated, blocked, err := svc.applyOpenAIFastPolicyToWSResponseCreate(context.Background(), account, "gpt-5.5", frame)
-	require.NoError(t, err)
-	require.Nil(t, blocked)
-	require.Equal(t, OpenAIFastTierPriority, gjson.GetBytes(updated, "service_tier").String(),
-		"missing service_tier should be forced to priority")
+	for name, frame := range map[string][]byte{
+		"missing":           []byte(`{"type":"response.create","model":"gpt-5.5","input":[]}`),
+		"null":              []byte(`{"type":"response.create","model":"gpt-5.5","service_tier":null,"input":[]}`),
+		"empty_string":      []byte(`{"type":"response.create","model":"gpt-5.5","service_tier":"","input":[]}`),
+		"whitespace_string": []byte(`{"type":"response.create","model":"gpt-5.5","service_tier":"   ","input":[]}`),
+		"unknown_string":    []byte(`{"type":"response.create","model":"gpt-5.5","service_tier":"turbo","input":[]}`),
+		"number":            []byte(`{"type":"response.create","model":"gpt-5.5","service_tier":123,"input":[]}`),
+		"bool":              []byte(`{"type":"response.create","model":"gpt-5.5","service_tier":true,"input":[]}`),
+		"object":            []byte(`{"type":"response.create","model":"gpt-5.5","service_tier":{"tier":"flex"},"input":[]}`),
+		"array":             []byte(`{"type":"response.create","model":"gpt-5.5","service_tier":["flex"],"input":[]}`),
+	} {
+		updated, blocked, err := svc.applyOpenAIFastPolicyToWSResponseCreate(context.Background(), account, "gpt-5.5", frame)
+		require.NoError(t, err, name)
+		require.Nil(t, blocked, name)
+		require.Equal(t, OpenAIFastTierPriority, gjson.GetBytes(updated, "service_tier").String(),
+			"%s service_tier should be forced to priority", name)
+	}
 }
 
 func TestWSResponseCreate_FlexPassThrough(t *testing.T) {
